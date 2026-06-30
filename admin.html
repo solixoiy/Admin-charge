@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CHARGE POINT | Panel Administration</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #f8fafc; font-family: 'Poppins', sans-serif; margin: 0; padding-bottom: 90px; }
+        .admin-header {
+            background: linear-gradient(135deg, #111827 0%, #1f2937 100%);
+            color: white; border-bottom-left-radius: 2.5rem; border-bottom-right-radius: 2.5rem;
+        }
+        .tab-btn { flex: 1; padding: 14px; font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; transition: 0.25s; border-radius: 1rem; color: #64748b; }
+        .tab-active { background: #f97316; color: white; box-shadow: 0 8px 15px rgba(249, 115, 22, 0.2); }
+        .request-card { background: white; border-radius: 1.8rem; padding: 20px; border: 1px solid #e2e8f0; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.02); }
+    </style>
+</head>
+<body>
+
+    <!-- Header Principal -->
+    <div class="admin-header pt-14 pb-8 px-6 text-center shadow-xl mb-6">
+        <div class="w-12 h-12 bg-orange-500 rounded-2xl flex items-center justify-center text-white mx-auto mb-3 shadow-md">
+            <i class="fa-solid fa-toolbox text-xl"></i>
+        </div>
+        <h1 class="text-xl font-black uppercase tracking-tight">Console de Contrôle</h1>
+        <p class="text-[9px] font-bold text-orange-400 uppercase tracking-widest mt-1">Gestion CHARGE POINT v1.0</p>
+    </div>
+
+    <div class="px-4">
+        <!-- Switch de Navigation Interne -->
+        <div class="bg-white p-1.5 rounded-[1.2rem] flex mb-6 border border-slate-200 shadow-sm">
+            <button id="tabRecharges" onclick="switchAdminTab('recharges')" class="tab-btn tab-active">Dépôts</button>
+            <button id="tabRetraits" onclick="switchAdminTab('retraits')" class="tab-btn">Retraits</button>
+        </div>
+
+        <!-- Compteur rapide -->
+        <div class="mb-4 px-2 flex justify-between items-center">
+            <p class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Demandes en attente</p>
+            <span id="queueCount" class="bg-orange-100 text-orange-600 font-black text-xs px-3 py-0.5 rounded-full">0</span>
+        </div>
+
+        <!-- Zone de Contenu dynamique -->
+        <div id="adminListContainer" class="min-h-[350px]">
+            <div class="text-center py-20 opacity-40">
+                <i class="fa-solid fa-circle-notch fa-spin text-3xl text-orange-500"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Raccourci vers la console Firebase -->
+    <div class="fixed bottom-5 left-5 z-50">
+        <a href="https://console.firebase.google.com/project/sonyy-9b565/database/sonyy-9b565-default-rtdb/data" target="_blank" class="flex items-center gap-2 bg-gray-900 text-white text-[10px] font-black uppercase tracking-wider px-4 py-3 rounded-xl shadow-xl border border-gray-800 active:scale-95 transition-all">
+            <i class="fa-solid fa-database text-orange-500 text-xs"></i> 
+            Base de données
+        </a>
+    </div>
+
+    <!-- Chargement des modules Firebase Officiels -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getDatabase, ref, onValue, update, get, child } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+        // Configuration avec vos identifiants exacts
+        const firebaseConfig = {
+            databaseURL: "https://sonyy-9b565-default-rtdb.firebaseio.com"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        window.currentTab = 'recharges';
+
+        // Rendre les fonctions accessibles globalement pour les boutons onclick
+        window.switchAdminTab = function(tab) {
+            window.currentTab = tab;
+            document.getElementById('tabRecharges').className = (tab === 'recharges' ? 'tab-btn tab-active' : 'tab-btn');
+            document.getElementById('tabRetraits').className = (tab === 'retraits' ? 'tab-btn tab-active' : 'tab-btn');
+            fetchRequests();
+        }
+
+        window.fetchRequests = function() {
+            const container = document.getElementById('adminListContainer');
+            const dbRef = ref(db, window.currentTab);
+
+            // Écoute en temps réel (onValue) : pas de problème de cache ou de rafraîchissement
+            onValue(dbRef, (snapshot) => {
+                container.innerHTML = "";
+                let pendingCount = 0;
+                const data = snapshot.val();
+
+                if (!data) {
+                    displayEmpty();
+                    document.getElementById('queueCount').innerText = "0";
+                    return;
+                }
+
+                for (let key in data) {
+                    const item = data[key];
+                    if (item && item.status === "EN ATTENTE") {
+                        pendingCount++;
+                        if (window.currentTab === 'recharges') {
+                            container.innerHTML += buildRechargeCard(key, item);
+                        } else {
+                            container.innerHTML += buildRetraitCard(key, item);
+                        }
+                    }
+                }
+
+                document.getElementById('queueCount').innerText = pendingCount;
+                if (pendingCount === 0) displayEmpty();
+            }, (error) => {
+                console.error(error);
+                container.innerHTML = `
+                    <div class="text-center py-10 px-4 bg-red-50 rounded-2xl border border-red-100">
+                        <i class="fa-solid fa-triangle-exclamation text-red-500 text-2xl mb-2"></i>
+                        <p class="text-red-700 text-xs font-bold">Erreur de synchronisation Firebase.</p>
+                        <p class="text-[10px] text-red-500 mt-1">Vérifiez vos règles Realtime Database.</p>
+                    </div>`;
+            });
+        }
+
+        function displayEmpty() {
+            document.getElementById('adminListContainer').innerHTML = `
+                <div class="text-center py-20 opacity-30 border-2 border-dashed border-slate-200 rounded-[2rem] bg-white">
+                    <i class="fa-solid fa-circle-check text-4xl mb-2 text-slate-400"></i>
+                    <p class="text-[10px] font-black uppercase tracking-widest text-slate-400">Tout est à jour</p>
+                </div>`;
+        }
+
+        function buildRechargeCard(key, item) {
+            return `
+                <div class="request-card border-l-4 border-orange-500">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase">Utilisateur : ${item.telephoneCompte || 'Inconnu'}</p>
+                            <h2 class="text-lg font-black text-slate-900">${parseFloat(item.montant || 0).toLocaleString()} CDF</h2>
+                        </div>
+                        <span class="bg-orange-50 text-orange-600 font-black text-[9px] px-2.5 py-1 rounded-md uppercase">${item.reseau || 'SMS'}</span>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-xl mb-4 text-left border border-slate-100">
+                        <p class="text-[8px] font-black text-slate-400 uppercase mb-1">Expéditeur : ${item.numeroExpediteur || 'Non fourni'}</p>
+                        <p class="text-[10px] font-mono font-bold text-slate-700 leading-relaxed bg-white p-2 rounded-lg border border-slate-100 select-all">${item.messagePreuve || ''}</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="processAction('recharges', '${key}', 'APPROUVÉ', '${item.userId}', ${item.montant})" class="bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider py-3 rounded-xl shadow-sm active:scale-95 transition-all">Approuver</button>
+                        <button onclick="processAction('recharges', '${key}', 'REJETÉ')" class="bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider py-3 rounded-xl shadow-sm active:scale-95 transition-all">Rejeter</button>
+                    </div>
+                </div>`;
+        }
+
+        function buildRetraitCard(key, item) {
+            return `
+                <div class="request-card border-l-4 border-slate-900">
+                    <div class="flex justify-between items-start mb-3">
+                        <div>
+                            <p class="text-[9px] font-black text-slate-400 uppercase">Compte : ${item.telephoneCompte || 'Inconnu'}</p>
+                            <h2 class="text-lg font-black text-rose-600">-${parseFloat(item.montant || 0).toLocaleString()} CDF</h2>
+                        </div>
+                        <span class="bg-slate-100 text-slate-800 font-black text-[9px] px-2.5 py-1 rounded-md uppercase">${item.retraitReseau || 'Mobile Money'}</span>
+                    </div>
+                    <div class="bg-slate-50 p-3 rounded-xl mb-4 text-left border border-slate-100">
+                        <p class="text-[8px] font-black text-slate-400 uppercase">Titulaire SIM : <span class="text-slate-900 font-bold">${item.receveurNom || 'Non renseigné'}</span></p>
+                        <p class="text-[11px] font-mono font-black text-slate-900 mt-1 select-all"><i class="fa-solid fa-phone-flip text-slate-400 mr-1"></i> ${item.receveurNum || 'N/A'}</p>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="processAction('retraits', '${key}', 'APPROUVÉ')" class="bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider py-3 rounded-xl shadow-sm active:scale-95 transition-all">Valider Envoi</button>
+                        <button onclick="processAction('retraits', '${key}', 'REJETÉ', '${item.userId}', ${item.montant})" class="bg-rose-600 text-white text-[10px] font-black uppercase tracking-wider py-3 rounded-xl shadow-sm active:scale-95 transition-all">Rejeter (Restituer)</button>
+                    </div>
+                </div>`;
+        }
+
+        window.processAction = async function(endpoint, key, status, userId = null, montant = 0) {
+            const confirmation = confirm(`Voulez-vous marquer cette demande comme ${status} ?`);
+            if (!confirmation) return;
+
+            try {
+                // Mise à jour du statut de la transaction
+                const updates = {};
+                updates[`/${endpoint}/${key}/status`] = status;
+                await update(ref(db), updates);
+
+                // Recharges approuvées : Créditer le compte
+                if (endpoint === 'recharges' && status === 'APPROUVÉ' && userId) {
+                    const userSnapshot = await get(child(ref(db), `utilisateurs/${userId}`));
+                    if (userSnapshot.exists()) {
+                        const user = userSnapshot.val();
+                        const nouveauSolde = (user.solde || 0) + montant;
+                        const userUpdate = {};
+                        userUpdate[`/utilisateurs/${userId}/solde`] = nouveauSolde;
+                        await update(ref(db), userUpdate);
+                    }
+                }
+
+                // Retraits rejetés : Restituer le solde
+                if (endpoint === 'retraits' && status === 'REJETÉ' && userId) {
+                    const userSnapshot = await get(child(ref(db), `utilisateurs/${userId}`));
+                    if (userSnapshot.exists()) {
+                        const user = userSnapshot.val();
+                        const nouveauSolde = (user.solde || 0) + montant;
+                        const userUpdate = {};
+                        userUpdate[`/utilisateurs/${userId}/solde`] = nouveauSolde;
+                        await update(ref(db), userUpdate);
+                    }
+                }
+
+                alert(`Opération complétée avec succès !`);
+                fetchRequests();
+
+            } catch (e) {
+                alert("Erreur lors de l'exécution de l'action.");
+            }
+        }
+
+        // Premier chargement
+        fetchRequests();
+    </script>
+</body>
+</html>
